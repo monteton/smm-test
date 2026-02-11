@@ -329,8 +329,8 @@
     <div class="install-banner-header">
       <img src="icon-192.png" alt="SMM" class="install-banner-icon">
       <div class="install-banner-text">
-        <p class="install-banner-title">Установите приложение SMM</p>
-        <p class="install-banner-subtitle">Быстрый доступ с главного экрана</p>
+        <p class="install-banner-title" id="installTitle">Установите приложение SMM</p>
+        <p class="install-banner-subtitle" id="installSubtitle">Быстрый доступ с главного экрана</p>
       </div>
     </div>
     <button class="install-banner-btn" id="installBtn">Установить</button>
@@ -354,6 +354,8 @@
       const btn = document.getElementById('installBtn');
       const closeBtn = document.getElementById('installClose');
       const stepsEl = document.getElementById('installSteps');
+      const titleEl = document.getElementById('installTitle');
+      const subtitleEl = document.getElementById('installSubtitle');
 
       // Не показываем, если уже установлено (standalone)
       if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
@@ -370,6 +372,13 @@
       const ua = navigator.userAgent || '';
       const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       const isAndroid = /Android/i.test(ua);
+
+      // Telegram in-app browser (Android и iOS)
+      const isTelegram = /Telegram/i.test(ua) || /TelegramBot/i.test(ua);
+
+      // Другие встраиваемые WebView (Instagram, Facebook, VK и т.д.)
+      const isWebView = /FBAN|FBAV|Instagram|VKAndroidApp|vkme/i.test(ua);
+
       const isSamsung = /SamsungBrowser/i.test(ua);
       const isOpera = /OPR|Opera/i.test(ua);
       const isFirefox = /Firefox/i.test(ua) && !/Seamonkey/i.test(ua);
@@ -381,6 +390,12 @@
       let deferredPrompt = null;
       let canNativeInstall = false;
 
+      // === Telegram / WebView: показываем сразу ===
+      if (isTelegram || isWebView) {
+        setTimeout(() => showBanner('telegram'), 1500);
+        return; // Не ждём beforeinstallprompt — его не будет в WebView
+      }
+
       // Перехватываем событие beforeinstallprompt (Chrome, Opera, Samsung, Edge, Yandex)
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
@@ -389,27 +404,34 @@
         showBanner('native');
       });
 
-      // Показываем баннер с задержкой (3 сек) для браузеров без beforeinstallprompt
+      // Для браузеров без beforeinstallprompt — фоллбэк с задержкой
+      // Увеличена задержка до 4 сек для Opera (она иногда медленнее отправляет событие)
       setTimeout(() => {
         if (!canNativeInstall && !window.matchMedia('(display-mode: standalone)').matches) {
-          if (isIOS) {
+          if (isIOS && isSafari) {
             showBanner('ios');
+          } else if (isIOS && !isSafari) {
+            // iOS но не Safari (Chrome iOS, Opera iOS и др.)
+            showBanner('ios-other');
+          } else if (isOpera) {
+            showBanner('opera');
           } else if (isFirefox && isAndroid) {
             showBanner('firefox');
-          } else if (!canNativeInstall) {
+          } else {
             showBanner('manual');
           }
         }
-      }, 3000);
+      }, 4000);
 
       function showBanner(mode) {
         banner.classList.add('show');
 
         if (mode === 'native') {
-          // Chromium-based: Chrome, Opera, Edge, Samsung, Yandex
+          // Chromium-based: Chrome, Opera, Edge, Samsung, Yandex — нативная установка
           btn.style.display = 'inline-block';
+          btn.textContent = 'Установить';
           stepsEl.innerHTML = '';
-          btn.addEventListener('click', async () => {
+          btn.onclick = async () => {
             if (deferredPrompt) {
               deferredPrompt.prompt();
               const { outcome } = await deferredPrompt.userChoice;
@@ -418,25 +440,86 @@
               }
               deferredPrompt = null;
             }
-          });
+          };
+
+        } else if (mode === 'telegram') {
+          // Telegram / встроенный WebView — нельзя установить, предлагаем скопировать ссылку
+          titleEl.textContent = 'Откройте в браузере';
+          subtitleEl.textContent = 'В Telegram нельзя установить приложение напрямую';
+          btn.style.display = 'inline-block';
+          btn.textContent = '📋 Скопировать ссылку';
+          stepsEl.innerHTML = 'Скопируйте ссылку и откройте в <b>Chrome</b> или <b>Safari</b>,<br>затем установите приложение';
+          btn.onclick = () => {
+            copyToClipboard(window.location.href);
+            btn.textContent = '✅ Скопировано!';
+            btn.style.background = '#27ae60';
+            setTimeout(() => {
+              btn.textContent = '📋 Скопировать ссылку';
+              btn.style.background = '';
+            }, 2000);
+          };
+
         } else if (mode === 'ios') {
           // Safari на iOS
           btn.style.display = 'none';
           stepsEl.innerHTML = 'Нажмите <b>⬆ Поделиться</b> внизу экрана,<br>затем <b>«На экран «Домой»»</b>';
+
+        } else if (mode === 'ios-other') {
+          // Chrome/Opera/другие на iOS — они не поддерживают PWA, нужен Safari
+          titleEl.textContent = 'Откройте в Safari';
+          subtitleEl.textContent = 'Этот браузер не поддерживает установку';
+          btn.style.display = 'inline-block';
+          btn.textContent = '📋 Скопировать ссылку';
+          stepsEl.innerHTML = 'Скопируйте ссылку, откройте <b>Safari</b>,<br>нажмите <b>⬆ Поделиться</b> → <b>«На экран «Домой»»</b>';
+          btn.onclick = () => {
+            copyToClipboard(window.location.href);
+            btn.textContent = '✅ Скопировано!';
+            btn.style.background = '#27ae60';
+            setTimeout(() => {
+              btn.textContent = '📋 Скопировать ссылку';
+              btn.style.background = '';
+            }, 2000);
+          };
+
+        } else if (mode === 'opera') {
+          // Opera Mobile — не всегда поддерживает beforeinstallprompt
+          btn.style.display = 'none';
+          stepsEl.innerHTML = 'Нажмите <b>⋯ (меню)</b> внизу экрана,<br>затем <b>«Домашний экран»</b> или <b>«Добавить на…»</b>';
+
         } else if (mode === 'firefox') {
           // Firefox Android
           btn.style.display = 'none';
           stepsEl.innerHTML = 'Нажмите <b>⋮ (меню)</b> → <b>«Установить»</b>';
+
         } else {
           // Любой другой браузер
           btn.style.display = 'none';
           let browserName = 'браузера';
-          if (isOpera) browserName = 'Opera';
-          else if (isYandex) browserName = 'Яндекс Браузер';
+          if (isYandex) browserName = 'Яндекс Браузер';
           else if (isSamsung) browserName = 'Samsung Internet';
           else if (isEdge) browserName = 'Edge';
           stepsEl.innerHTML = 'Откройте <b>меню ' + browserName + '</b><br>и выберите <b>«Добавить на главный экран»</b>';
         }
+      }
+
+      // Копирование в буфер обмена
+      function copyToClipboard(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+        } else {
+          fallbackCopy(text);
+        }
+      }
+      function fallbackCopy(text) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) { }
+        document.body.removeChild(ta);
       }
 
       // Закрытие баннера
