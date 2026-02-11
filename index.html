@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SMM — Старт</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Theme Color (цвет панели браузера на Android) -->
+  <meta name="theme-color" content="#015871">
+
+  <!-- iOS: режим полноэкранного приложения -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SMM">
+
+  <!-- iOS: иконка для добавления на экран -->
+  <link rel="apple-touch-icon" href="icon-192.png">
+
+  <link href="https://fonts.googleapis.com/css?family=Lobster" rel="stylesheet">
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    body {
+      background: radial-gradient(ellipse at center, rgba(255, 254, 234, 1) 0%, rgba(255, 254, 234, 1) 35%, #B7E8EB 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: sans-serif;
+      color: #B61A44;
+      position: relative;
+      touch-action: manipulation;
+    }
+
+    .ocean {
+      height: 5%;
+      width: 100%;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      background: #015871;
+    }
+
+    .wave {
+      background: url(https://s3-us-west-2.amazonaws.com/s.cdpn.io/85486/wave.svg) repeat-x;
+      position: absolute;
+      top: -198px;
+      width: 6400px;
+      height: 198px;
+      animation: wave 7s cubic-bezier(0.36, 0.45, 0.63, 0.53) infinite;
+      transform: translate3d(0, 0, 0);
+    }
+
+    .wave:nth-of-type(2) {
+      top: -175px;
+      animation: wave 7s cubic-bezier(0.36, 0.45, 0.63, 0.53) -.125s infinite, swell 7s ease -1.25s infinite;
+      opacity: 1;
+    }
+
+    @keyframes wave {
+      0% {
+        margin-left: 0;
+      }
+
+      100% {
+        margin-left: -1600px;
+      }
+    }
+
+    @keyframes swell {
+
+      0%,
+      100% {
+        transform: translate3d(0, -25px, 0);
+      }
+
+      50% {
+        transform: translate3d(0, 5px, 0);
+      }
+    }
+
+    h1 {
+      text-align: center;
+      font-family: 'Lobster', sans-serif;
+      font-size: 20vw;
+      margin: 0 0 0.5rem;
+      animation: wobble 5s linear infinite;
+      z-index: 10;
+      position: relative;
+      padding: 0 1rem;
+    }
+
+    .course-name {
+      font-family: sans-serif;
+      font-size: 1.2rem;
+      text-align: center;
+      margin: 0 0 2rem;
+      z-index: 10;
+      position: relative;
+      color: #B61A44;
+      opacity: 0.9;
+      max-width: 90%;
+      line-height: 1.4;
+      padding: 0 1rem;
+    }
+
+    .start-button {
+      display: inline-block;
+      padding: 1rem 2.5rem;
+      background: #B61A44;
+      color: #fff;
+      border: none;
+      border-radius: 40px;
+      font-family: sans-serif;
+      font-size: 1.2rem;
+      font-weight: bold;
+      text-decoration: none;
+      transition: background 0.3s, box-shadow 0.3s;
+      animation: pulseBig 2s infinite;
+      box-shadow: 0 4px 24px 0 rgba(182, 26, 68, 0.3);
+      margin-top: 2rem;
+      z-index: 10;
+      position: absolute;
+      bottom: 10%;
+      left: 50%;
+      transform: translateX(-50%);
+      white-space: nowrap;
+    }
+
+    .start-button:hover {
+      background: #D12C5C;
+      box-shadow: 0 0 30px #B61A44;
+    }
+
+    @keyframes wobble {
+      0% {
+        transform: scale(0.9);
+      }
+
+      50% {
+        transform: scale(1.1);
+      }
+
+      100% {
+        transform: scale(0.9);
+      }
+    }
+
+    @keyframes pulseBig {
+      0% {
+        transform: scale(1) translateX(-50%);
+        box-shadow: 0 0 10px #B61A44;
+      }
+
+      50% {
+        transform: scale(1.05) translateX(-50%);
+        box-shadow: 0 0 20px #B61A44;
+      }
+
+      100% {
+        transform: scale(1) translateX(-50%);
+        box-shadow: 0 0 10px #B61A44;
+      }
+    }
+
+    /* Адаптация для мобильных устройств */
+    @media (max-width: 480px) {
+      h1 {
+        font-size: 24vw;
+        margin: 0;
+      }
+
+      .course-name {
+        font-size: 1rem;
+        margin: 0 0 1rem;
+      }
+
+      .start-button {
+        font-size: 1rem;
+        padding: 0.8rem 2rem;
+        bottom: 8%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <h1>SMM</h1>
+  <div class="course-name">
+    Продвижение в соцсетях и Telegram<br>
+    Создание контент-стратегий
+  </div>
+  <a href="main.html" class="start-button">Старт</a>
+  <div class="ocean">
+    <div class="wave"></div>
+    <div class="wave wave-2"></div>
+  </div>
+  <!-- Регистрация Service Worker для PWA -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js')
+          .then((reg) => console.log('SW зарегистрирован:', reg.scope))
+          .catch((err) => console.log('SW ошибка:', err));
+      });
+    }
+  </script>
+</body>
+
+</html>
