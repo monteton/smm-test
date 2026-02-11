@@ -362,22 +362,21 @@
         return;
       }
 
-      // Не показываем, если пользователь закрыл (помним 7 дней)
-      const dismissed = localStorage.getItem('pwa-banner-dismissed');
-      if (dismissed && Date.now() - parseInt(dismissed) < 7 * 24 * 60 * 60 * 1000) {
-        return;
-      }
-
-      // Определяем платформу и браузер
+      // === Определяем платформу и браузер ===
       const ua = navigator.userAgent || '';
       const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       const isAndroid = /Android/i.test(ua);
 
-      // Telegram in-app browser (Android и iOS)
-      const isTelegram = /Telegram/i.test(ua) || /TelegramBot/i.test(ua);
+      // Telegram: определяем через JS-объекты (надёжно) + UA (запасной вариант)
+      const isTelegram = !!(
+        window.TelegramWebviewProxy ||
+        (window.Telegram && window.Telegram.WebApp) ||
+        /Telegram/i.test(ua) ||
+        /TelegramBot/i.test(ua)
+      );
 
       // Другие встраиваемые WebView (Instagram, Facebook, VK и т.д.)
-      const isWebView = /FBAN|FBAV|Instagram|VKAndroidApp|vkme/i.test(ua);
+      const isWebView = /FBAN|FBAV|Instagram|VKAndroidApp|vkme|Line\//i.test(ua);
 
       const isSamsung = /SamsungBrowser/i.test(ua);
       const isOpera = /OPR|Opera/i.test(ua);
@@ -387,47 +386,71 @@
       const isChrome = /Chrome/i.test(ua) && !isOpera && !isEdge && !isSamsung && !isYandex;
       const isSafari = /Safari/i.test(ua) && !isChrome && !isOpera && !isEdge && !isSamsung && !isYandex && !isFirefox;
 
+      // === Логика показа/скрытия баннера ===
+      // Разделяем: "закрыл нативный" vs "закрыл ручной" vs "не закрывал"
+      const dismissData = JSON.parse(localStorage.getItem('pwa-banner-state') || '{}');
+      const now = Date.now();
+      const ONE_DAY = 24 * 60 * 60 * 1000;
+
+      // Если закрыл ручные инструкции — не показываем 3 дня
+      if (dismissData.manualDismissed && now - dismissData.manualDismissed < 3 * ONE_DAY) {
+        return;
+      }
+
+      // Если закрыл нативную кнопку "Установить" — ждём 1 день, потом покажем ручную инструкцию
+      const nativeDismissedRecently = dismissData.nativeDismissed && now - dismissData.nativeDismissed < ONE_DAY;
+
       let deferredPrompt = null;
       let canNativeInstall = false;
+      let bannerShown = false;
+      let currentMode = null;
 
       // === Telegram / WebView: показываем сразу ===
       if (isTelegram || isWebView) {
-        setTimeout(() => showBanner('telegram'), 1500);
-        return; // Не ждём beforeinstallprompt — его не будет в WebView
+        setTimeout(() => showBanner('telegram'), 1000);
+        return;
       }
 
-      // Перехватываем событие beforeinstallprompt (Chrome, Opera, Samsung, Edge, Yandex)
+      // Перехватываем beforeinstallprompt (Chrome, Opera, Samsung, Edge, Yandex)
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
         canNativeInstall = true;
-        showBanner('native');
+        // Показываем нативную кнопку, если не закрывали недавно
+        if (!nativeDismissedRecently && !bannerShown) {
+          showBanner('native');
+        }
       });
 
-      // Для браузеров без beforeinstallprompt — фоллбэк с задержкой
-      // Увеличена задержка до 4 сек для Opera (она иногда медленнее отправляет событие)
+      // Фоллбэк для браузеров без beforeinstallprompt (4 сек задержка)
       setTimeout(() => {
-        if (!canNativeInstall && !window.matchMedia('(display-mode: standalone)').matches) {
-          if (isIOS && isSafari) {
-            showBanner('ios');
-          } else if (isIOS && !isSafari) {
-            // iOS но не Safari (Chrome iOS, Opera iOS и др.)
-            showBanner('ios-other');
-          } else if (isOpera) {
-            showBanner('opera');
-          } else if (isFirefox && isAndroid) {
-            showBanner('firefox');
-          } else {
-            showBanner('manual');
-          }
+        if (bannerShown) return; // Уже показан нативный
+        if (window.matchMedia('(display-mode: standalone)').matches) return;
+
+        // Если нативную кнопку закрыли, а beforeinstallprompt не пришёл —
+        // показываем ручную инструкцию (это повторный визит)
+        if (isIOS && isSafari) {
+          showBanner('ios');
+        } else if (isIOS && !isSafari) {
+          showBanner('ios-other');
+        } else if (isOpera) {
+          showBanner('opera');
+        } else if (isFirefox && isAndroid) {
+          showBanner('firefox');
+        } else if (!canNativeInstall) {
+          // Не Chromium, или Chromium но не прислал beforeinstallprompt
+          showBanner('manual');
         }
       }, 4000);
 
       function showBanner(mode) {
+        if (bannerShown) return;
+        bannerShown = true;
+        currentMode = mode;
         banner.classList.add('show');
 
         if (mode === 'native') {
-          // Chromium-based: Chrome, Opera, Edge, Samsung, Yandex — нативная установка
+          // Chromium-based: нативная установка в один тап
           btn.style.display = 'inline-block';
           btn.textContent = 'Установить';
           stepsEl.innerHTML = '';
@@ -443,12 +466,12 @@
           };
 
         } else if (mode === 'telegram') {
-          // Telegram / встроенный WebView — нельзя установить, предлагаем скопировать ссылку
+          // Telegram / WebView — предлагаем скопировать ссылку
           titleEl.textContent = 'Откройте в браузере';
-          subtitleEl.textContent = 'В Telegram нельзя установить приложение напрямую';
+          subtitleEl.textContent = 'Здесь нельзя установить приложение';
           btn.style.display = 'inline-block';
           btn.textContent = '📋 Скопировать ссылку';
-          stepsEl.innerHTML = 'Скопируйте ссылку и откройте в <b>Chrome</b> или <b>Safari</b>,<br>затем установите приложение';
+          stepsEl.innerHTML = 'Скопируйте и откройте в <b>Chrome</b> или <b>Safari</b>';
           btn.onclick = () => {
             copyToClipboard(window.location.href);
             btn.textContent = '✅ Скопировано!';
@@ -456,21 +479,19 @@
             setTimeout(() => {
               btn.textContent = '📋 Скопировать ссылку';
               btn.style.background = '';
-            }, 2000);
+            }, 2500);
           };
 
         } else if (mode === 'ios') {
-          // Safari на iOS
           btn.style.display = 'none';
           stepsEl.innerHTML = 'Нажмите <b>⬆ Поделиться</b> внизу экрана,<br>затем <b>«На экран «Домой»»</b>';
 
         } else if (mode === 'ios-other') {
-          // Chrome/Opera/другие на iOS — они не поддерживают PWA, нужен Safari
           titleEl.textContent = 'Откройте в Safari';
           subtitleEl.textContent = 'Этот браузер не поддерживает установку';
           btn.style.display = 'inline-block';
           btn.textContent = '📋 Скопировать ссылку';
-          stepsEl.innerHTML = 'Скопируйте ссылку, откройте <b>Safari</b>,<br>нажмите <b>⬆ Поделиться</b> → <b>«На экран «Домой»»</b>';
+          stepsEl.innerHTML = 'Откройте <b>Safari</b>, нажмите <b>⬆ Поделиться</b><br>→ <b>«На экран «Домой»»</b>';
           btn.onclick = () => {
             copyToClipboard(window.location.href);
             btn.textContent = '✅ Скопировано!';
@@ -478,21 +499,18 @@
             setTimeout(() => {
               btn.textContent = '📋 Скопировать ссылку';
               btn.style.background = '';
-            }, 2000);
+            }, 2500);
           };
 
         } else if (mode === 'opera') {
-          // Opera Mobile — не всегда поддерживает beforeinstallprompt
           btn.style.display = 'none';
           stepsEl.innerHTML = 'Нажмите <b>⋯ (меню)</b> внизу экрана,<br>затем <b>«Домашний экран»</b> или <b>«Добавить на…»</b>';
 
         } else if (mode === 'firefox') {
-          // Firefox Android
           btn.style.display = 'none';
           stepsEl.innerHTML = 'Нажмите <b>⋮ (меню)</b> → <b>«Установить»</b>';
 
         } else {
-          // Любой другой браузер
           btn.style.display = 'none';
           let browserName = 'браузера';
           if (isYandex) browserName = 'Яндекс Браузер';
@@ -522,15 +540,22 @@
         document.body.removeChild(ta);
       }
 
-      // Закрытие баннера
+      // Закрытие баннера — запоминаем какой режим был
       closeBtn.addEventListener('click', () => {
         banner.classList.remove('show');
-        localStorage.setItem('pwa-banner-dismissed', Date.now().toString());
+        const state = JSON.parse(localStorage.getItem('pwa-banner-state') || '{}');
+        if (currentMode === 'native') {
+          state.nativeDismissed = Date.now();
+        } else {
+          state.manualDismissed = Date.now();
+        }
+        localStorage.setItem('pwa-banner-state', JSON.stringify(state));
       });
 
       // Прячем баннер после установки
       window.addEventListener('appinstalled', () => {
         banner.classList.remove('show');
+        localStorage.setItem('pwa-banner-state', JSON.stringify({ installed: true }));
         console.log('PWA установлено!');
       });
     })();
