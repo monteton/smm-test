@@ -2,7 +2,8 @@
   "name": "SMM — Продвижение в соцсетях",
   "short_name": "SMM",
   "description": "Курс по продвижению в соцсетях и Telegram. Создание контент-стратегий.",
-  "start_url": "/index.html",
+  "start_url": "./index.html",
+  "id": "/smm-app",
   "display": "standalone",
   "background_color": "#015871",
   "theme_color": "#015871",
@@ -12,13 +13,25 @@
       "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
