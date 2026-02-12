@@ -357,7 +357,7 @@
       const titleEl = document.getElementById('installTitle');
       const subtitleEl = document.getElementById('installSubtitle');
 
-      // Не показываем, если уже установлено (standalone)
+      // Не показываем, если уже установлено
       if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
         return;
       }
@@ -367,16 +367,20 @@
       const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       const isAndroid = /Android/i.test(ua);
 
-      // Telegram: определяем через JS-объекты (надёжно) + UA (запасной вариант)
+      // Telegram — определяем несколькими способами
       const isTelegram = !!(
         window.TelegramWebviewProxy ||
         (window.Telegram && window.Telegram.WebApp) ||
         /Telegram/i.test(ua) ||
-        /TelegramBot/i.test(ua)
+        document.referrer.indexOf('t.me') !== -1 ||
+        window.location.href.indexOf('tgWebApp') !== -1
       );
 
-      // Другие встраиваемые WebView (Instagram, Facebook, VK и т.д.)
+      // Другие WebView (Instagram, Facebook, VK и т.д.)
       const isWebView = /FBAN|FBAV|Instagram|VKAndroidApp|vkme|Line\//i.test(ua);
+
+      // Общая проверка на встроенный WebView Android (любое приложение)
+      const isAndroidWebView = isAndroid && /wv\)|Version\/[\d.]+.*Chrome/i.test(ua);
 
       const isSamsung = /SamsungBrowser/i.test(ua);
       const isOpera = /OPR|Opera/i.test(ua);
@@ -386,62 +390,94 @@
       const isChrome = /Chrome/i.test(ua) && !isOpera && !isEdge && !isSamsung && !isYandex;
       const isSafari = /Safari/i.test(ua) && !isChrome && !isOpera && !isEdge && !isSamsung && !isYandex && !isFirefox;
 
-      // === Логика показа/скрытия баннера ===
-      // Разделяем: "закрыл нативный" vs "закрыл ручной" vs "не закрывал"
+      // Нужно ли перенаправлять в Chrome? (браузеры, которые не умеют ставить PWA)
+      const needsChromeRedirect = isAndroid && (isTelegram || isWebView || isAndroidWebView);
+
+      // === Dismiss-логика: помним 1 день ===
       const dismissData = JSON.parse(localStorage.getItem('pwa-banner-state') || '{}');
       const now = Date.now();
       const ONE_DAY = 24 * 60 * 60 * 1000;
-
-      // Если закрыл ручные инструкции — не показываем 3 дня
-      if (dismissData.manualDismissed && now - dismissData.manualDismissed < 3 * ONE_DAY) {
+      if (dismissData.dismissed && now - dismissData.dismissed < ONE_DAY) {
         return;
       }
-
-      // Если закрыл нативную кнопку "Установить" — ждём 1 день, потом покажем ручную инструкцию
-      const nativeDismissedRecently = dismissData.nativeDismissed && now - dismissData.nativeDismissed < ONE_DAY;
 
       let deferredPrompt = null;
       let canNativeInstall = false;
       let bannerShown = false;
       let currentMode = null;
 
-      // === Telegram / WebView: показываем сразу ===
-      if (isTelegram || isWebView) {
-        setTimeout(() => showBanner('telegram'), 1000);
+      // === Telegram / WebView на Android: кнопка «Открыть в Chrome» ===
+      if (needsChromeRedirect) {
+        setTimeout(() => showBanner('open-chrome'), 1000);
         return;
       }
 
-      // Перехватываем beforeinstallprompt (Chrome, Opera, Samsung, Edge, Yandex)
+      // === Telegram / WebView на iOS: скопировать ссылку для Safari ===
+      if (isIOS && (isTelegram || isWebView)) {
+        setTimeout(() => showBanner('ios-webview'), 1000);
+        return;
+      }
+
+      // Перехватываем beforeinstallprompt (Chrome, Samsung, Edge, Yandex — и иногда Opera)
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
         canNativeInstall = true;
-        // Показываем нативную кнопку, если не закрывали недавно
-        if (!nativeDismissedRecently && !bannerShown) {
+        if (!bannerShown) {
           showBanner('native');
         }
       });
 
-      // Фоллбэк для браузеров без beforeinstallprompt (4 сек задержка)
+      // Фоллбэк: если за 4 сек beforeinstallprompt не пришёл
       setTimeout(() => {
-        if (bannerShown) return; // Уже показан нативный
+        if (bannerShown) return;
         if (window.matchMedia('(display-mode: standalone)').matches) return;
 
-        // Если нативную кнопку закрыли, а beforeinstallprompt не пришёл —
-        // показываем ручную инструкцию (это повторный визит)
         if (isIOS && isSafari) {
           showBanner('ios');
         } else if (isIOS && !isSafari) {
-          showBanner('ios-other');
-        } else if (isOpera) {
-          showBanner('opera');
-        } else if (isFirefox && isAndroid) {
-          showBanner('firefox');
+          showBanner('ios-webview');
+        } else if (isAndroid && (isOpera || isFirefox)) {
+          // Opera и Firefox на Android — перенаправляем в Chrome
+          showBanner('open-chrome');
+        } else if (isAndroid && !canNativeInstall) {
+          // Любой другой Android-браузер без beforeinstallprompt
+          showBanner('open-chrome');
         } else if (!canNativeInstall) {
-          // Не Chromium, или Chromium но не прислал beforeinstallprompt
           showBanner('manual');
         }
       }, 4000);
+
+      // === Функция открытия в Chrome через Android Intent ===
+      function openInChrome() {
+        const url = window.location.href;
+        const urlWithoutProtocol = url.replace(/^https?:\/\//, '');
+
+        // Способ 1: Android Intent — открывает Chrome напрямую
+        const intentUrl = 'intent://' + urlWithoutProtocol +
+          '#Intent;scheme=https;package=com.android.chrome;end';
+
+        // Пробуем Intent
+        window.location.href = intentUrl;
+
+        // Если Intent не сработал через 2 сек — пробуем обычный window.open
+        setTimeout(() => {
+          // Способ 2: window.open — в WebView может открыть системный браузер
+          const w = window.open(url, '_system') || window.open(url, '_blank');
+          if (!w) {
+            // Способ 3: если ничего не работает — копируем ссылку
+            copyToClipboard(url);
+            btn.textContent = '✅ Ссылка скопирована!';
+            stepsEl.innerHTML = 'Вставьте в <b>Chrome</b> и нажмите <b>«Установить»</b>';
+            btn.style.background = '#27ae60';
+            setTimeout(() => {
+              btn.textContent = '🌐 Открыть в Chrome';
+              btn.style.background = '';
+              stepsEl.innerHTML = 'Для установки нужен <b>Chrome</b>';
+            }, 3000);
+          }
+        }, 2000);
+      }
 
       function showBanner(mode) {
         if (bannerShown) return;
@@ -450,7 +486,7 @@
         banner.classList.add('show');
 
         if (mode === 'native') {
-          // Chromium-based: нативная установка в один тап
+          // Chrome, Samsung, Edge, Yandex — кнопка «Установить»
           btn.style.display = 'inline-block';
           btn.textContent = 'Установить';
           stepsEl.innerHTML = '';
@@ -465,33 +501,27 @@
             }
           };
 
-        } else if (mode === 'telegram') {
-          // Telegram / WebView — предлагаем скопировать ссылку
-          titleEl.textContent = 'Откройте в браузере';
-          subtitleEl.textContent = 'Здесь нельзя установить приложение';
+        } else if (mode === 'open-chrome') {
+          // Android: Opera, Telegram, Firefox, WebView — кнопка «Открыть в Chrome»
+          titleEl.textContent = 'Установите приложение';
+          subtitleEl.textContent = 'Для установки нужен Chrome';
           btn.style.display = 'inline-block';
-          btn.textContent = '📋 Скопировать ссылку';
-          stepsEl.innerHTML = 'Скопируйте и откройте в <b>Chrome</b> или <b>Safari</b>';
-          btn.onclick = () => {
-            copyToClipboard(window.location.href);
-            btn.textContent = '✅ Скопировано!';
-            btn.style.background = '#27ae60';
-            setTimeout(() => {
-              btn.textContent = '📋 Скопировать ссылку';
-              btn.style.background = '';
-            }, 2500);
-          };
+          btn.textContent = '🌐 Открыть в Chrome';
+          stepsEl.innerHTML = 'В Chrome нажмите <b>«Установить»</b>';
+          btn.onclick = openInChrome;
 
         } else if (mode === 'ios') {
+          // Safari iOS — ручная инструкция
           btn.style.display = 'none';
           stepsEl.innerHTML = 'Нажмите <b>⬆ Поделиться</b> внизу экрана,<br>затем <b>«На экран «Домой»»</b>';
 
-        } else if (mode === 'ios-other') {
+        } else if (mode === 'ios-webview') {
+          // iOS в Telegram/VK/Instagram — нужен Safari
           titleEl.textContent = 'Откройте в Safari';
-          subtitleEl.textContent = 'Этот браузер не поддерживает установку';
+          subtitleEl.textContent = 'Здесь нельзя установить приложение';
           btn.style.display = 'inline-block';
           btn.textContent = '📋 Скопировать ссылку';
-          stepsEl.innerHTML = 'Откройте <b>Safari</b>, нажмите <b>⬆ Поделиться</b><br>→ <b>«На экран «Домой»»</b>';
+          stepsEl.innerHTML = 'Вставьте в <b>Safari</b>, нажмите <b>⬆ Поделиться</b><br>→ <b>«На экран «Домой»»</b>';
           btn.onclick = () => {
             copyToClipboard(window.location.href);
             btn.textContent = '✅ Скопировано!';
@@ -502,21 +532,10 @@
             }, 2500);
           };
 
-        } else if (mode === 'opera') {
-          btn.style.display = 'none';
-          stepsEl.innerHTML = 'Нажмите <b>⋯ (меню)</b> внизу экрана,<br>затем <b>«Домашний экран»</b> или <b>«Добавить на…»</b>';
-
-        } else if (mode === 'firefox') {
-          btn.style.display = 'none';
-          stepsEl.innerHTML = 'Нажмите <b>⋮ (меню)</b> → <b>«Установить»</b>';
-
         } else {
+          // Десктоп или неизвестный браузер
           btn.style.display = 'none';
-          let browserName = 'браузера';
-          if (isYandex) browserName = 'Яндекс Браузер';
-          else if (isSamsung) browserName = 'Samsung Internet';
-          else if (isEdge) browserName = 'Edge';
-          stepsEl.innerHTML = 'Откройте <b>меню ' + browserName + '</b><br>и выберите <b>«Добавить на главный экран»</b>';
+          stepsEl.innerHTML = 'Откройте <b>меню браузера</b><br>и выберите <b>«Установить»</b> или <b>«Добавить на главный экран»</b>';
         }
       }
 
@@ -540,16 +559,10 @@
         document.body.removeChild(ta);
       }
 
-      // Закрытие баннера — запоминаем какой режим был
+      // Закрытие баннера — помним 1 день
       closeBtn.addEventListener('click', () => {
         banner.classList.remove('show');
-        const state = JSON.parse(localStorage.getItem('pwa-banner-state') || '{}');
-        if (currentMode === 'native') {
-          state.nativeDismissed = Date.now();
-        } else {
-          state.manualDismissed = Date.now();
-        }
-        localStorage.setItem('pwa-banner-state', JSON.stringify(state));
+        localStorage.setItem('pwa-banner-state', JSON.stringify({ dismissed: Date.now() }));
       });
 
       // Прячем баннер после установки
